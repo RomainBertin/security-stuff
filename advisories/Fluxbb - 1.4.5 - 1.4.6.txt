@@ -1,0 +1,147 @@
+                  ===== Security Discovery =====
+
+					
+Advisory : FluxBB - Multiple vulnerabilities
+Version: 1.4.5 - 1.4.6
+Date: 05/09/2011
+
+Author: Romain. B
+Exploits: The exploits are not distributed to the public
+
+1) SQL INJECTION
+
+    1.1) In the event of the "FORUM_BEHIND_REVERSE_PROXY" constant being 
+         declared as it's describe in the fluxbb documentation [1] and the 
+         $_SERVER['HTTP_X_FORWARDED_FOR'] variable being present, the function 
+         get_remote_addr() returns the first IP adress of the client list located 
+         in the $_SERVER['HTTP_X_FORWARDED_FOR'] variable. In addition to that, 
+         no filtering is applied to the variable before being returned to the 
+         function. Therefore a code injection is possible using the X-Forwarded-For 
+         header as described below.
+    
+    1.2) SQL Injection in set_default_user()
+
+        /include/functions.php
+        Line 240:
+
+            function set_default_user()
+            {
+                global $db, $db_type, $pun_user, $pun_config;
+
+                $remote_addr = get_remote_address();
+
+                // Fetch guest user
+                $result = $db->query('SELECT u.*, g.*, o.logged, o.last_post, 
+                o.last_search FROM '.$db->prefix.'users AS u INNER JOIN 
+                '.$db->prefix.'groups AS g ON u.group_id=g.g_id LEFT JOIN 
+                '.$db->prefix.'online AS o ON o.ident=\''.$remote_addr.'\' 
+                WHERE u.id=1') or error('Unable to fetch guest information',
+                __FILE__, __LINE__, $db->error());
+
+    1.3) Multiple SQL Injection in /post.php
+
+        Line 170:
+
+            // Insert the new post
+            $db->query('INSERT INTO '.$db->prefix.'posts (poster, poster_id, poster_ip,
+            message, hide_smilies, posted, topic_id) VALUES(\''.$db->escape($username).'\',
+            '.$pun_user['id'].', \''.get_remote_address().'\', \''.$db->escape($message).'\',
+            '.$hide_smilies.', '.$now.', '.$tid.')') or error('Unable to create post', __FILE__,
+            __LINE__, $db->error());
+            
+        Line 187:
+
+            $db->query('INSERT INTO '.$db->prefix.'posts (poster, poster_ip, poster_email,
+            message, hide_smilies, posted, topic_id) VALUES(\''.$db->escape($username).'\',
+            \''.get_remote_address().'\', '.$email_sql.', \''.$db->escape($message).'\', 
+            '.$hide_smilies.', '.$now.', '.$tid.')') or error('Unable to create post', 
+            __FILE__, __LINE__, $db->error());
+
+        Line 297:
+
+            $db->query('INSERT INTO '.$db->prefix.'posts (poster, poster_id, poster_ip, 
+            message, hide_smilies, posted, topic_id) VALUES(\''.$db->escape($username).'\',
+            '.$pun_user['id'].', \''.get_remote_address().'\', \''.$db->escape($message).'\',
+            '.$hide_smilies.', '.$now.', '.$new_tid.')') or error('Unable to create post',
+            __FILE__, __LINE__, $db->error());
+                
+        Line 303:
+
+            $db->query('INSERT INTO '.$db->prefix.'posts (poster, poster_ip, poster_email,
+            message, hide_smilies, posted, topic_id) VALUES(\''.$db->escape($username).'\',
+            \''.get_remote_address().'\', '.$email_sql.', \''.$db->escape($message).'\',
+            '.$hide_smilies.', '.$now.', '.$new_tid.')') or error('Unable to create post',
+            __FILE__, __LINE__, $db->error());
+
+    1.4) Multiple SQL Injection in /register.php
+
+        Line 68:
+
+            // Check that someone from this IP didn't register a user within the last hour (DoS prevention)
+            $result = $db->query('SELECT 1 FROM '.$db->prefix.'users WHERE 
+            registration_ip=\''.get_remote_address().'\' AND registered>'.(time() - 3600)) 
+            or error('Unable to fetch user info', __FILE__, __LINE__, $db->error());
+
+        Line 159:
+
+            $db->query('INSERT INTO '.$db->prefix.'users (username, group_id, password, email, 
+            email_setting, timezone, dst, language, style, registered, registration_ip, last_visit)
+            VALUES(\''.$db->escape($username).'\', '.$intial_group_id.', \''.$password_hash.'\', 
+            \''.$db->escape($email1).'\', '.$email_setting.', '.$timezone.' , '.$dst.', 
+            \''.$db->escape($language).'\', \''.$pun_config['o_default_style'].'\', '.$now.',
+            \''.get_remote_address().'\', '.$now.')') or error('Unable to create user', 
+            __FILE__, __LINE__, $db->error());
+
+2) Cross Site Scripting
+
+    2.1) Admin space - Bans
+
+         File: admin_bans.php
+         
+		 $result = $db->query('SELECT username, ip, email, message, expire FROM '.$db->prefix.'bans WHERE id='.$ban_id) 
+		 or error('Unable to fetch ban info', __FILE__, __LINE__, $db->error());
+		 if ($db->num_rows($result))
+			list($ban_user, $ban_ip, $ban_email, $ban_message, $ban_expire) = $db->fetch_row($result);
+			
+		 ............
+		 
+         <input type="text" name="ban_ip" size="45" maxlength="255" value="<?php if (isset($ban_ip)) echo $ban_ip; ?>" tabindex="2" />
+    
+		The principle is the same as presented in 1.1, it's possible to insert 
+		JavaScript code when registering, taking part of the vulnerability located in
+		the get_remote_addr() function. In admin_bans.php file, the variable $ban_ip
+		is displayed without going through a filtration process against HTML entities
+		after it's extraction from the database, the injection JavaScript code becomes possible.
+		
+    
+3) Full Path Disclosure
+
+	The "Full Path Disclosure" is an information leak, some vulnerabilities 
+	require the WEBROOT of the web application to build a exploitation.
+	For example, as part of a SQL injection with the function "LOAD_FILE()"
+	of MySQL [2], it is necessary to have the full path name of the file
+	to access it.
+	
+	You can fix this by checking that the variable is not an array before 
+	passing it as parameter to a function not treating this type of data, 
+	either by hiding the errors, which can be done by adding the "E_WARNING" 
+	constant when using error_reporting() in /include/common.php.
+	error_reporting(E_ALL ^ (E_NOTICE | E_WARNING));
+	
+
+Resources:
+
+[1] http://fluxbb.org/docs/v1.4/constants#forum_behind_reverse_proxy
+
+    FORUM_BEHIND_REVERSE_PROXY
+
+    Defining FORUM_BEHIND_REVERSE_PROXY will cause FluxBB to consider the HTTP_X_FORWARDED_PROTO 
+    header when determining the protocol in use, and the HTTP_X_FORWARDED_FOR header when determining a 
+    users IP address. This should only be defined if you are serving FluxBB from behind a reverse proxy.
+
+        define('FORUM_BEHIND_REVERSE_PROXY', 1);
+
+[2] http://dev.mysql.com/doc/refman/5.0/en/string-functions.html#function_load-file
+
+	"you must specify the full path name to the file"
+	
