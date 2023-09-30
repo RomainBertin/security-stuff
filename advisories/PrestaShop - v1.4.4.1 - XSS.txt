@@ -1,0 +1,17 @@
+                  ===== Security Discovery =====
+
+					
+Advisory : PrestaShop - Multiple vulnerabilities
+Version: 1.4.4.1
+Date: 13/10/2011
+
+Author: Romain. B
+Exploits: The exploits are not distributed to the public
+
+1) Cross-Site Scripting
+
+	1.1) admin/ajax.php
+	
+		if (isset($_GET['changeParentUrl']))
+			echo '<script type="text/javascript">parent.parent.document.location.href = 
+			"'.addslashes(urldecode(Tools::getValue('changeParentUrl'))).'";</script>';
